@@ -5,11 +5,20 @@ import numpy as np
 from glob import glob
 from tqdm import tqdm
 
-torch.manual_seed(0)
+import pdb
+import sys
+
+def excepthook(type, value, traceback):
+    pdb.post_mortem(traceback)
+
+excepthook.old = sys.excepthook
+sys.excepthook = excepthook
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+torch.manual_seed(0)
 
 from utils import dice
 from model import UNet
@@ -17,14 +26,15 @@ from data import SegmentationDataSet, load_train_data
 
 class Trainer:
     def __init__(self, model, device, title) -> None:
-        self.model = model
         self.device = device
+        self.model = model.to(self.device)
         self.loss = dice
+        self.softmax = torch.nn.Softmax(dim=1)
         self.title = title
     
     def save_checkpoint(self, path):
-        if not os.path.exists(os.dirname(path)):
-            os.makedirs(os.dirname(path), exists_ok=True)
+        if not os.path.exists(os.path.dirname(path)):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
         state_dict = {
             'state_dict': self.model.state_dict(),
             'optimizer': self.optim.state_dict(),
@@ -39,16 +49,18 @@ class Trainer:
             # train
             for i, batch in enumerate(train_gen):
                 x, y = batch
+                x = x.to(self.device)
+                y = y.to(self.device)
                 
                 # forward
                 logits = self.model(x)
-                preds = torch.sigmoid(logits)
+                preds = self.softmax(logits)
 
                 # compute loss
                 loss = self.loss(preds, y)
                 loss.backward()
 
-                if i % 10 == 0:
+                if i % 2 == 0:
                     print(f'Step {i:03d} | dice loss: {loss.detach().cpu().numpy():.3f}')
 
                 # optimizer.step
@@ -63,7 +75,7 @@ class Trainer:
                 for i, batch in enumerate(val_gen):
                     x, y = batch
                     logits = self.model(x)
-                    preds = torch.sigmoid(logits)
+                    preds = self.softmax(logits)
                     loss = self.loss(preds, y)
                     val_losses.append(loss.cpu().detach().numpy())
                 print(f'Val finished | dice loss: {np.mean(val_losses):.3f}')

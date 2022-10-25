@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.init as init
 
 class DoubleConv(nn.Module):
     def __init__(self, in_ch, out_ch) -> None:
@@ -61,6 +62,24 @@ class UNet(nn.Module):
         self.u2 = UpConv(256, 128)
         self.u1 = UpConv(128, 64)
         self.out = OutConv(64, self.n_classes)
+        self.model_weight_initializer()
+
+    def model_weight_initializer(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if hasattr(m, 'weight'):
+                    init.kaiming_normal_(m.weight.data, nonlinearity='relu')
+                if m.bias is not None:
+                    init.normal_(m.bias.data)
+            elif isinstance(m, nn.BatchNorm2d):
+                if m.weight is not None:
+                    init.normal_(m.weight.data, mean=1, std=0.02)
+                if m.bias is not None:
+                    init.constant_(m.bias.data, 0)
+            elif isinstance(m, nn.Linear):
+                init.xavier_normal_(m.weight.data)
+                if m.bias is not None:
+                    init.normal_(m.bias.data)
 
     def forward(self, x):
         f1 = self.c1(x)

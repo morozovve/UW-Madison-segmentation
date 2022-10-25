@@ -12,7 +12,7 @@ def split_train_test(keys, ratio=.8):
     test_keys = [x for x in keys if '_'.join(x.split('_')[:2]) in test_case_days]
     return train_keys, test_keys
 
-def get_resize_both(size=224):
+def get_resize_both(size=256):
     def resize_both(x, y):
         x = cv2.resize(x, (size, size))
         y = cv2.resize(y, (size, size))
@@ -59,7 +59,7 @@ def load_train_data(df):
                                shuffle=True)
     dl_test  = data.DataLoader(dataset=ds_test,
                                batch_size=8,
-                               shuffle=True)
+                               shuffle=False)
     return dl_train, dl_test
 
 
