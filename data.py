@@ -15,20 +15,21 @@ def split_train_test(keys, ratio=.8):
 
 def get_random_crop_both(size=224):
     def random_crop_both(x, y):
-        h, w = x.shape[:2]
+        # assuming input having shape C, H, W
+        h, w = x.shape[1:]
         if w == size and h == size:
             return x, y
 
         i = torch.randint(0, h - size + 1, size=(1,)).item()
         j = torch.randint(0, w - size + 1, size=(1,)).item()
 
-        return x[i:i+size, j:j+size], y[i:i+size, j:j+size]
+        return x[:, i:i+size, j:j+size], y[:, i:i+size, j:j+size]
     return random_crop_both
 
 def get_resize_both(size=224):
     def resize_both(x, y):
-        x = cv2.resize(x, (size, size))
-        y = cv2.resize(y, (size, size))
+        x = cv2.resize(x, (size, size), interpolation=cv2.INTER_NEAREST)
+        y = cv2.resize(y, (size, size), interpolation=cv2.INTER_NEAREST)
         return x, y
     return resize_both
 
@@ -59,15 +60,19 @@ def load_train_data(df, batch_size=8, resize_size=256):
 
     train_keys, test_keys = split_train_test(keys, ratio=.8)
 
-    transform = get_chain_transforms(
-        # get_resize_both(size=resize_size),
-        get_random_crop_both(size=224),
+    preproc = get_chain_transforms(
+        get_resize_both(size=resize_size),
+        # get_random_crop_both(size=224),
         get_to_tensor_both(),
         normalize,
     )
+    
+    transform = get_chain_transforms(
+        get_random_crop_both(size=224),
+    )
 
-    ds_train = SegmentationDataset({k: df[k] for k in train_keys}, transform=transform) #, prefetch='none')
-    ds_test  = SegmentationDataset({k: df[k] for k in test_keys},  transform=transform)
+    ds_train = SegmentationDataset({k: df[k] for k in train_keys}, preproc=preproc) #, prefetch='none',.transform=None)
+    ds_test  = SegmentationDataset({k: df[k] for k in test_keys},  preproc=preproc)
 
     dl_train = data.DataLoader(dataset=ds_train,
                                batch_size=batch_size,
@@ -83,6 +88,7 @@ class SegmentationDataset(data.Dataset):
     def __init__(self,
                  data_dict: dict,
                  transform=None,
+                 preproc=None,
                  prefetch='full',
                  ):
 
@@ -91,11 +97,12 @@ class SegmentationDataset(data.Dataset):
         self.input_dict = data_dict # contains RLE-encoded masks -> to be converted to np.ndarray
 
         self.target_classes = {
-            'large_bowel': 0,
-            'small_bowel': 1,
-            'stomach': 2
+            'large_bowel': 1,
+            'small_bowel': 2,
+            'stomach': 3
         }
         self.n_classes = 3
+        self.preproc = preproc
         self.transform = transform
         self.inputs_dtype = torch.float32
         self.targets_dtype = torch.long
@@ -119,8 +126,8 @@ class SegmentationDataset(data.Dataset):
 
             y = self.__acquire_mask_from_rle(x, imname)
 
-            if self.transform is not None:
-                x, y = self.transform(x, y)
+            if self.preproc is not None:
+                x, y = self.preproc(x, y)
 
             x, y = x.type(self.inputs_dtype), y.type(self.targets_dtype)
             self.cache.append((x, y))
@@ -165,10 +172,14 @@ class SegmentationDataset(data.Dataset):
         imname = self.inputs[index]
 
         # Load input and target
-        x = cv2.imread(self.input_dict[imname]['path'], -1).astype(np.float32)[..., np.newaxis]
+        x = cv2.imread(self.input_dict[imname]['path'], -1).astype(np.float32)
         x /= x.max()
         y = self.__acquire_mask_from_rle(x, imname)
         # Preprocessing
+        if self.preproc is not None:
+            x, y = self.preproc(x, y)
+
+        # Augs
         if self.transform is not None:
             x, y = self.transform(x, y)
 

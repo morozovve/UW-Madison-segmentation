@@ -1,3 +1,4 @@
+import argparse
 import os
 import time
 import pandas as pd
@@ -11,14 +12,15 @@ import sys
 def excepthook(type, value, traceback):
     pdb.post_mortem(traceback)
 
-#excepthook.old = sys.excepthook
-#sys.excepthook = excepthook
+# excepthook.old = sys.excepthook
+# sys.excepthook = excepthook
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import argparse
+from torch.nn.functional import one_hot
 import cfg
+import utils
 
 torch.manual_seed(0)
 
@@ -41,8 +43,11 @@ class Trainer:
         self.device = device
         self.model = model.to(self.device)
         self.loss = dice
-        self.softmax = torch.nn.Softmax(dim=1)
+        # self.outfunc = torch.nn.Sigmoid()
+        self.outfunc = torch.nn.Softmax(dim=1)
         self.model_name = model_name
+        if not os.path.exists(self.model_name):
+            os.makedirs(self.model_name, exist_ok=True)
     
     def save_checkpoint(self, path):
         if not os.path.exists(os.path.dirname(path)):
@@ -68,21 +73,32 @@ class Trainer:
                 
                 # forward
                 logits = self.model(x)
-                preds = self.softmax(logits)
+                preds = self.outfunc(logits)
 
                 # compute loss
                 loss = self.loss(preds, y)
                 loss.backward()
                 train_losses.append(loss.detach().cpu().numpy())
                 if i %  5 == 0:
-                    print(f'Step {i:03d} | dice loss: {loss.detach().cpu().numpy():.3f} (avg 50 batch: {np.mean(train_losses):.3f})')
+                    print(f'[epoch {e:03d}] Step {i:03d} | dice loss: {loss.detach().cpu().numpy():.3f} (avg 50 batch: {np.mean(train_losses):.3f})')
                     train_losses = []
                 # optimizer.step
                 self.optim.step()
                 self.optim.zero_grad()
+                if i == 0:
+                    utils.save_mask_img(x[0], preds[0], f'{self.model_name}/epoch_{e:03d}.png')
+                    utils.save_img(x[0], f'{self.model_name}/epoch_{e:03d}_img.png', mode='img')
+                    utils.save_img(preds[0], f'{self.model_name}/epoch_{e:03d}_mask.png', mode='mask')
+                    utils.save_img(
+                        (one_hot(y[0].long(), num_classes=4) * 255).detach().cpu().numpy().astype('uint8')[..., 1:],
+                        f'{self.model_name}/epoch_{e:03d}_gtmask.png',
+                        mode='mask'
+                    )
+                    print(preds[0].sum())
+                    print(y[0].sum())
 
             train_time = time.time()
-            print(f'Epoch took {train_time-start_time}s')
+            print(f'[epoch {e:03d}] Epoch took {train_time-start_time}s')
 
             # val
             with torch.no_grad():
@@ -92,12 +108,12 @@ class Trainer:
                     x = x.to(self.device)
                     y = y.to(self.device)
                     logits = self.model(x)
-                    preds = self.softmax(logits)
+                    preds = self.outfunc(logits)
                     loss = self.loss(preds, y)
                     val_losses.append(loss.cpu().detach().numpy())
-                print(f'Val finished | dice loss: {np.mean(val_losses):.3f}')
+                print(f'[epoch {e:03d}] Val finished | dice loss: {np.mean(val_losses):.3f}')
             all_time = time.time()
-            print(f'Val took {all_time-train_time}s')
+            print(f'[epoch {e:03d}] Val took {all_time-train_time}s')
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             
@@ -111,7 +127,7 @@ def train(args):
         device = torch.device('cpu')
 
     train_dl, test_dl = load_train_data(train_df, batch_size=args.batch_size, resize_size=cfg.RESIZE_SIZE)
-    model = UNet(n_classes=3, model_depth=args.model_depth)
+    model = UNet(n_classes=4, model_depth=args.model_depth)
 
     model_name=f'exp_lr_{args.learning_rate}_unet_size_{cfg.RESIZE_SIZE}_depth_{args.model_depth}'
 
