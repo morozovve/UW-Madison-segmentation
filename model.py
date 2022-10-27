@@ -31,7 +31,6 @@ class DownConv(nn.Module):
 class UpConv(nn.Module):
     def __init__(self, in_ch, out_ch) -> None:
         super().__init__()
-        # self.up = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
         self.up = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
         self.conv = DoubleConv(in_ch, out_ch)
     
@@ -48,20 +47,27 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 class UNet(nn.Module):
-    def __init__(self, n_classes=3) -> None:
+    def __init__(self, n_classes=3, model_depth=64) -> None:
         super().__init__()
         self.n_classes = n_classes
-        self.c1 = DoubleConv(1, 64)
-        self.d1 = DownConv(64, 128)
-        self.d2 = DownConv(128, 256)
-        self.d3 = DownConv(256, 512)
-        self.d4 = DownConv(512, 1024)
+        self.c1 = DoubleConv(1, model_depth)
+        self.d1 = DownConv(model_depth, model_depth * 2)
+        model_depth *= 2
+        self.d2 = DownConv(model_depth, model_depth * 2)
+        model_depth *= 2
+        self.d3 = DownConv(model_depth, model_depth * 2)
+        model_depth *= 2
+        self.d4 = DownConv(model_depth, model_depth * 2)
 
-        self.u4 = UpConv(1024, 512)
-        self.u3 = UpConv(512, 256)
-        self.u2 = UpConv(256, 128)
-        self.u1 = UpConv(128, 64)
-        self.out = OutConv(64, self.n_classes)
+        self.u4 = UpConv(model_depth * 2, model_depth)
+        self.u3 = UpConv(model_depth, model_depth // 2)
+        model_depth //= 2
+        self.u2 = UpConv(model_depth, model_depth // 2)
+        model_depth //= 2
+        self.u1 = UpConv(model_depth, model_depth // 2)
+        model_depth //= 2
+        self.out = OutConv(model_depth, self.n_classes)
+
         self.model_weight_initializer()
 
     def model_weight_initializer(self):
@@ -96,4 +102,3 @@ class UNet(nn.Module):
 
         logits = self.out(feat)
         return logits
-
