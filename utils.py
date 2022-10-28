@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 def mask_to_rle_str(mask, val):
     # np.array(mask) of shape (H, W) -> rle string for value 'val'
-    pixels = mask_image.flatten()
+    pixels = mask.flatten()
     pixels[0] = 0
     pixels[-1] = 0
     pixels = (pixels == val).astype(int)
@@ -54,7 +54,7 @@ def save_img(tensor, fpath, mode='img'):
 
 
 def save_mask_img(img_tensor, mask_tensor, fpath):
-    img_tensor = img_tensor.clone()
+    # img_tensor = img_tensor.clone()
     mask_tensor = mask_tensor.clone()
 
     img = tensor_to_img(img_tensor)

@@ -1,8 +1,12 @@
-import torch
+
 import cv2
 import numpy as np
-from torch.utils import data
 from tqdm import tqdm
+
+import torch
+from torch.utils import data
+
+import cfg
 
 def split_train_test(keys, ratio=.8):
     case_days = sorted(set('_'.join(x.split('_')[:2]) for x in keys))
@@ -25,6 +29,7 @@ def get_random_crop_both(size=224):
 
         return x[:, i:i+size, j:j+size], y[:, i:i+size, j:j+size]
     return random_crop_both
+
 
 def get_resize_both(size=224):
     def resize_both(x, y):
@@ -96,12 +101,6 @@ class SegmentationDataset(data.Dataset):
         self.inputs = sorted(data_dict.keys())
         self.input_dict = data_dict # contains RLE-encoded masks -> to be converted to np.ndarray
 
-        self.target_classes = {
-            'large_bowel': 1,
-            'small_bowel': 2,
-            'stomach': 3
-        }
-        self.n_classes = 3
         self.preproc = preproc
         self.transform = transform
         self.inputs_dtype = torch.float32
@@ -143,7 +142,7 @@ class SegmentationDataset(data.Dataset):
 
         mask = np.zeros((h, w))
         for k, rle_str in self.input_dict[imname]['segm'].items():
-            val = self.target_classes[k]
+            val = cfg.TARGET_CLASSES[k]
 
             rle_arr = np.array([int(x) for x in rle_str.split()]).reshape(-1, 2)
             for rle in rle_arr:

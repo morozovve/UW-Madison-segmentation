@@ -1,7 +1,9 @@
 import argparse
+import cv2
+import json
 import os
-import time
 import pandas as pd
+import time
 import numpy as np
 from glob import glob
 from tqdm import tqdm
@@ -32,11 +34,12 @@ def parse_args():
     parser.add_argument('-bs', '--batch-size', type=int, required=False, default=cfg.BATCH_SIZE, help='Batch size')
     parser.add_argument('-d', '--data-path', type=str, required=False, default=cfg.TRAIN_DATA_PATH, help='Path to data (either for train or for test')
     parser.add_argument('--validate', action='store_true', required=False, default=False, help='Validation mode')
+    parser.add_argument('-ckpt', '--checkpoint', type=str, required=False, help='Path to the trained model, either to continue trainig or for validation')
     return parser.parse_args()
 
 from utils import dice
 from model import UNet
-from data import load_train_data
+from data import load_train_data, normalize
 
 class Trainer:
     def __init__(self, model, device, model_name) -> None:
@@ -119,6 +122,7 @@ class Trainer:
             
             self.save_checkpoint(f'{self.model_name}/epoch_{e:03d}_dice_{np.mean(val_losses):.3f}.pth')
 
+
 def train(args):
     train_df = prepare_train_dataframe(args.data_path)
     if torch.cuda.is_available():
@@ -135,14 +139,102 @@ def train(args):
     trainer.train(train_dl, test_dl, epochs=args.epochs, lr=args.learning_rate)
 
 
+def load_model(ckpt_path, model_depth, n_classes):
+    model = UNet(n_classes=n_classes, model_depth=model_depth)
+    model.load_state_dict(torch.load(ckpt_path)["state_dict"])
+    return model
+
+
 def validate(args):
-    dpath = cfg.VAL_DATA_PATH
+    sm =  torch.nn.Softmax(dim=0)
+    n_classes = 4
+
+    if torch.cuda.is_available():
+        device = torch.device('cuda')
+    else:
+        device = torch.device('cpu')
+    model = load_model(args.checkpoint, args.model_depth, n_classes).to(device)
+
+    data_path = cfg.VAL_DATA_PATH
+    fs = glob(f'{data_path}/**/*.png', recursive=True)
+    print(f'loading {len(fs)} imgs')
+
+    ids = []
+    classes = []
+    segs = []
+
+    for f in tqdm(fs):
+        if '_mask' in f: continue
+        imid = os.path.basename(f)[:10]
+        imid = os.path.basename(os.path.dirname(os.path.dirname(f))) + '_' + imid
+        # read img
+        im = cv2.imread(f, -1).astype('float')
+        h, w = im.shape[:2]
+        im, _ = normalize(im, None)
+        # split by parts
+        crop_size = 224
+        nh, nw = (h + crop_size - 1) // crop_size, (w + crop_size - 1) // crop_size
+
+        batch_list = []
+        slicing = []
+        for i in range(nh):
+            for j in range(nw):
+                hslice = slice(crop_size * i, crop_size * (i + 1))
+                wslice = slice(crop_size * j, crop_size * (j + 1))
+                if i == nh - 1: # last height crop
+                    hslice = slice(h - crop_size, h)
+                if j == nw - 1: # last height crop
+                    wslice = slice(w - crop_size, w)
+                batch_list.append(im[hslice, wslice])
+                slicing.append([hslice, wslice])
+
+        # eval each part
+        with torch.no_grad():
+            batch = torch.tensor(np.array(batch_list)).unsqueeze(1).to(dtype=torch.float32, device=device)
+            preds = model(batch)
+
+        # glue back together, overlaying parts -> mean()
+        res = torch.zeros((n_classes, h, w))
+        counts = torch.zeros((h, w))
+        for pred, slices in zip(preds, slicing):
+            hslice, wslice = slices
+            counts[hslice, wslice] += 1
+            res[:, hslice, wslice] += pred
+        res /= counts.unsqueeze(0)
+        np_res = sm(res).round().long().argmax(dim=0).detach().cpu().numpy()
+
+
+        # some visualisations for debug
+        # utils.save_mask_img(
+        #     torch.tensor(im[np.newaxis, ...]),
+        #     sm(res),
+        #     os.path.join(f'{data_path}', 'preds', f'{imid}_mask.png'))
+
+        # some postproc
+        # TODO
+
+        # calc mask
+        mask_res = np_res[1:, ...]
+        for cl, val in cfg.TARGET_CLASSES.items():
+            rle_str = utils.mask_to_rle_str(np_res, val)
+            ids.append(imid)
+            classes.append(cl)
+            segs.append(rle_str)
+
+    res_df_dict ={ 
+        'id' : ids,
+        'class' : classes,
+        'predicted' : segs,
+    }
+    df = pd.DataFrame.from_dict(res_df_dict)
+    df.to_csv(os.path.join(f'{data_path}', 'test.csv'), index=False)
+
 
 def prepare_train_dataframe(data_path):
     df = pd.read_csv(f'{data_path}/train.csv')
     df = df[df.id.str.startswith('case101')]
     notnull_df = df[df.segmentation.notnull()].reset_index()
-    
+
     fs = glob(f'{data_path}/case101/**/*.png', recursive=True)
     # fs = glob(f'{data_path}/train/**/*.png', recursive=True)
     print(len(fs))
@@ -156,6 +248,7 @@ def prepare_train_dataframe(data_path):
         for _, r in records.iterrows():
             df_mapped[x]['segm'][r['class']] = r['segmentation']
     return df_mapped
+
 
 if __name__ == '__main__':
     args = parse_args()
