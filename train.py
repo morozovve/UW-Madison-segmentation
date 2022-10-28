@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('-d', '--data-path', type=str, required=False, default=cfg.TRAIN_DATA_PATH, help='Path to data (either for train or for test')
     parser.add_argument('--validate', action='store_true', required=False, default=False, help='Validation mode')
     parser.add_argument('-ckpt', '--checkpoint', type=str, required=False, help='Path to the trained model, either to continue trainig or for validation')
-    parser.add_argument('--output',, type=str, required=False, help='Path to the generated csv file')
+    parser.add_argument('--output', type=str, required=False, help='Path to the generated csv file')
     return parser.parse_args()
 
 from utils import dice
@@ -228,7 +228,7 @@ def validate(args):
         'predicted' : segs,
     }
     df = pd.DataFrame.from_dict(res_df_dict)
-    df.to_csv(args.output), index=False)
+    df.to_csv(args.output, index=False)
 
 
 def prepare_train_dataframe(data_path):
