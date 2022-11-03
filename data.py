@@ -1,4 +1,3 @@
-
 import cv2
 import numpy as np
 from tqdm import tqdm
@@ -19,15 +18,15 @@ def split_train_test(keys, ratio=.8):
 
 def get_random_crop_both(size=224):
     def random_crop_both(x, y):
-        # assuming input having shape C, H, W
-        h, w = x.shape[1:]
+        # assuming x have shape [C, H, W] and y (being mask) have shape [H, W]
+        _, h, w = x.shape
         if w == size and h == size:
             return x, y
 
         i = torch.randint(0, h - size + 1, size=(1,)).item()
         j = torch.randint(0, w - size + 1, size=(1,)).item()
 
-        return x[:, i:i+size, j:j+size], y[:, i:i+size, j:j+size]
+        return x[:, i:i+size, j:j+size], y[i:i+size, j:j+size]
     return random_crop_both
 
 
@@ -66,7 +65,7 @@ def load_train_data(df, batch_size=8, resize_size=256):
     train_keys, test_keys = split_train_test(keys, ratio=.8)
 
     preproc = get_chain_transforms(
-        get_resize_both(size=resize_size),
+        # get_resize_both(size=resize_size),
         # get_random_crop_both(size=224),
         get_to_tensor_both(),
         normalize,
@@ -76,8 +75,8 @@ def load_train_data(df, batch_size=8, resize_size=256):
         get_random_crop_both(size=224),
     )
 
-    ds_train = SegmentationDataset({k: df[k] for k in train_keys}, preproc=preproc) #, prefetch='none',.transform=None)
-    ds_test  = SegmentationDataset({k: df[k] for k in test_keys},  preproc=preproc)
+    ds_train = SegmentationDataset({k: df[k] for k in train_keys}, preproc=preproc, transform=transform) #, prefetch='none',.transform=None)
+    ds_test  = SegmentationDataset({k: df[k] for k in test_keys},  preproc=preproc, transform=transform)
 
     dl_train = data.DataLoader(dataset=ds_train,
                                batch_size=batch_size,
@@ -120,8 +119,7 @@ class SegmentationDataset(data.Dataset):
     def prefetch_data(self):
         self.cache = []
         for imname in tqdm(self.inputs):
-            x = cv2.imread(self.input_dict[imname]['path'], -1).astype(np.float32)
-            x /= x.max()
+            x = cv2.imread(self.input_dict[imname]['path'], -1).astype(np.float32)[np.newaxis, ...]
 
             y = self.__acquire_mask_from_rle(x, imname)
 
@@ -138,7 +136,7 @@ class SegmentationDataset(data.Dataset):
           'small_bowel': '35136 7 35495 11 35854 13...',
           'stomach':     '34752 9 35110 12 35469 14 ...'}
         """
-        h, w = img.shape[:2]
+        _, h, w = img.shape
 
         mask = np.zeros((h, w))
         for k, rle_str in self.input_dict[imname]['segm'].items():
@@ -165,14 +163,15 @@ class SegmentationDataset(data.Dataset):
             x, y = self.cache[index]
 
             # add augmentations probably ?
-
+            if self.transform is not None:
+                x, y = self.transform(x, y)
             return x, y
 
         imname = self.inputs[index]
 
         # Load input and target
-        x = cv2.imread(self.input_dict[imname]['path'], -1).astype(np.float32)
-        x /= x.max()
+        x = cv2.imread(self.input_dict[imname]['path'], -1).astype(np.float32)[np.newaxis, ...]
+
         y = self.__acquire_mask_from_rle(x, imname)
         # Preprocessing
         if self.preproc is not None:

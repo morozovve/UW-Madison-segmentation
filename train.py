@@ -64,7 +64,7 @@ class Trainer:
 
     def train(self, train_gen, val_gen, epochs=128, lr=0.01):
         # TODO Add logger
-        # add optimizer
+
         self.optim = torch.optim.Adam(self.model.parameters(), lr=lr)
         for e in range(1, epochs+1):
             start_time = time.time()
@@ -147,6 +147,7 @@ def load_model(ckpt_path, model_depth, n_classes):
 
 
 def validate(args):
+    # here we assuming that images are loaded of shape (1, H, W), not just (H, W)
     sm =  torch.nn.Softmax(dim=0)
     n_classes = 4
 
@@ -169,8 +170,8 @@ def validate(args):
         imid = os.path.basename(f)[:10]
         imid = os.path.basename(os.path.dirname(os.path.dirname(f))) + '_' + imid
         # read img
-        im = cv2.imread(f, -1).astype('float')
-        h, w = im.shape[:2]
+        im = cv2.imread(f, -1).astype('float')[np.newaxis, ...]
+        _, h, w = im.shape
         im, _ = normalize(im, None)
         # split by parts
         crop_size = 224
@@ -186,28 +187,30 @@ def validate(args):
                     hslice = slice(h - crop_size, h)
                 if j == nw - 1: # last height crop
                     wslice = slice(w - crop_size, w)
-                batch_list.append(im[hslice, wslice])
+                batch_list.append(im[:, hslice, wslice])
                 slicing.append([hslice, wslice])
 
         # eval each part
         with torch.no_grad():
-            batch = torch.tensor(np.array(batch_list)).unsqueeze(1).to(dtype=torch.float32, device=device)
+            batch = torch.tensor(np.array(batch_list)).to(dtype=torch.float32, device=device)
             preds = model(batch)
 
         # glue back together, overlaying parts -> mean()
         res = torch.zeros((n_classes, h, w))
-        counts = torch.zeros((h, w))
+        counts = torch.zeros((1, h, w))
         for pred, slices in zip(preds, slicing):
             hslice, wslice = slices
-            counts[hslice, wslice] += 1
+            counts[0, hslice, wslice] += 1
             res[:, hslice, wslice] += pred
-        res /= counts.unsqueeze(0)
+        res /= counts
+
+        # argmax to transform one-hot encoding into class values:
         np_res = sm(res).round().long().argmax(dim=0).detach().cpu().numpy()
 
 
         # some visualisations for debug
         # utils.save_mask_img(
-        #     torch.tensor(im[np.newaxis, ...]),
+        #     torch.tensor(im[...]),
         #     sm(res),
         #     os.path.join(f'{data_path}', 'preds', f'{imid}_mask.png'))
 
