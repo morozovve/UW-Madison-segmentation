@@ -20,6 +20,7 @@ def excepthook(type, value, traceback):
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.optim.lr_scheduler import StepLR
 from torch.nn.functional import one_hot
 import cfg
 import utils
@@ -66,15 +67,19 @@ class Trainer:
         # TODO Add logger
 
         self.optim = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.scheduler = StepLR(self.optim, step_size=20, gamma=0.1)
         for e in range(1, epochs+1):
             start_time = time.time()
             # train
+            print(f'[epoch {e:03d}] Epoch started, lr = {self.optim.param_groups[0]["lr"]}')
             train_losses=[]
             for i, batch in enumerate(train_gen):
                 x, y = batch
                 x = x.to(self.device)
                 y = y.to(self.device)
                 
+                self.optim.zero_grad()
+
                 # forward
                 logits = self.model(x)
                 preds = self.outfunc(logits)
@@ -86,9 +91,10 @@ class Trainer:
                 if i %  5 == 0:
                     print(f'[epoch {e:03d}] Step {i:03d} | dice loss: {loss.detach().cpu().numpy():.3f} (avg 50 batch: {np.mean(train_losses):.3f})')
                     train_losses = []
+
                 # optimizer.step
+                
                 self.optim.step()
-                self.optim.zero_grad()
                 if i == 0:
                     utils.save_mask_img(x[0], preds[0], f'{self.model_name}/epoch_{e:03d}.png')
                     utils.save_img(x[0], f'{self.model_name}/epoch_{e:03d}_img.png', mode='img')
@@ -98,8 +104,8 @@ class Trainer:
                         f'{self.model_name}/epoch_{e:03d}_gtmask.png',
                         mode='mask'
                     )
-                    print(preds[0].sum())
-                    print(y[0].sum())
+                    # print(preds[0].sum())
+                    # print(y[0].sum())
 
             train_time = time.time()
             print(f'[epoch {e:03d}] Epoch took {train_time-start_time}s')
@@ -117,6 +123,9 @@ class Trainer:
                     val_losses.append(loss.cpu().detach().numpy())
                 print(f'[epoch {e:03d}] Val finished | dice loss: {np.mean(val_losses):.3f}')
             all_time = time.time()
+
+            self.scheduler.step()
+
             print(f'[epoch {e:03d}] Val took {all_time-train_time}s')
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
@@ -241,7 +250,7 @@ def prepare_train_dataframe(data_path):
 
     fs = glob(f'{data_path}/case101/**/*.png', recursive=True)
     # fs = glob(f'{data_path}/train/**/*.png', recursive=True)
-    print(len(fs))
+    # print(len(fs))
     id_to_fn_mapping = {os.path.basename(os.path.dirname(os.path.dirname(f))) + '_' + os.path.basename(f)[:10]: f for f in fs}
 
     df_mapped = {}
