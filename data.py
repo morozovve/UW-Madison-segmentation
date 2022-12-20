@@ -70,7 +70,7 @@ def load_train_data(df, batch_size=8, resize_size=256):
         get_to_tensor_both(),
         normalize,
     )
-    
+
     transform = get_chain_transforms(
         get_random_crop_both(size=224),
     )
@@ -131,7 +131,7 @@ class SegmentationDataset(data.Dataset):
 
     def __acquire_mask_from_rle(self, img, imname):
         """
-        self.target_dict[key_sample] = 
+        self.target_dict[key_sample] =
          {'large_bowel': '30043 13 30400 17 30757 21 ...',
           'small_bowel': '35136 7 35495 11 35854 13...',
           'stomach':     '34752 9 35110 12 35469 14 ...'}

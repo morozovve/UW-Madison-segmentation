@@ -53,7 +53,7 @@ class Trainer:
         self.model_name = model_name
         if not os.path.exists(self.model_name):
             os.makedirs(self.model_name, exist_ok=True)
-    
+
     def save_checkpoint(self, path):
         if not os.path.exists(os.path.dirname(path)):
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -77,7 +77,7 @@ class Trainer:
                 x, y = batch
                 x = x.to(self.device)
                 y = y.to(self.device)
-                
+
                 self.optim.zero_grad()
 
                 # forward
@@ -93,7 +93,7 @@ class Trainer:
                     train_losses = []
 
                 # optimizer.step
-                
+
                 self.optim.step()
                 if i == 0:
                     utils.save_mask_img(x[0], preds[0], f'{self.model_name}/epoch_{e:03d}.png')
@@ -129,7 +129,7 @@ class Trainer:
             print(f'[epoch {e:03d}] Val took {all_time-train_time}s')
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            
+
             self.save_checkpoint(f'{self.model_name}/epoch_{e:03d}_dice_{np.mean(val_losses):.3f}.pth')
 
 
@@ -234,7 +234,7 @@ def validate(args):
             classes.append(cl)
             segs.append(rle_str)
 
-    res_df_dict ={ 
+    res_df_dict ={
         'id' : ids,
         'class' : classes,
         'predicted' : segs,

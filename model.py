@@ -24,7 +24,7 @@ class DownConv(nn.Module):
         super().__init__()
         self.mp = nn.MaxPool2d(2)
         self.conv = DoubleConv(in_ch, out_ch)
-    
+
     def forward(self, x):
         return self.conv(self.mp(x))
 
@@ -33,7 +33,7 @@ class UpConv(nn.Module):
         super().__init__()
         self.up = nn.ConvTranspose2d(in_ch, in_ch // 2, kernel_size=2, stride=2)
         self.conv = DoubleConv(in_ch, out_ch)
-    
+
     def forward(self, x1, x2):
         x1up = self.up(x1)
         return self.conv(torch.cat([x1up, x2], dim=1))
